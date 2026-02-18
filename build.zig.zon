@@ -1,0 +1,12 @@
+.{
+    .name = .sriracha,
+    .version = "0.1.0",
+    .fingerprint = 0xce79305b3cebb643,
+    .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
