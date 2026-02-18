@@ -1,37 +1,53 @@
 const std = @import("std");
-const windows = std.os.windows;
 
 // ============================================================
-// Re-exported types from std.os.windows
+// Win32 base types (self-contained, no std.os.windows dependency)
 // ============================================================
 
-pub const HWND = windows.HWND;
-pub const HINSTANCE = windows.HINSTANCE;
-pub const HMODULE = windows.HMODULE;
-pub const HBRUSH = windows.HBRUSH;
-pub const HCURSOR = windows.HCURSOR;
-pub const HICON = windows.HICON;
-pub const HMENU = windows.HMENU;
-pub const HDC = windows.HDC;
-pub const HANDLE = windows.HANDLE;
-pub const RECT = windows.RECT;
-pub const POINT = windows.POINT;
-pub const LPARAM = windows.LPARAM;
-pub const WPARAM = windows.WPARAM;
-pub const LRESULT = windows.LRESULT;
-pub const DWORD = windows.DWORD;
-pub const WORD = windows.WORD;
-pub const LONG = windows.LONG;
-pub const UINT = windows.UINT;
-pub const BOOL = windows.BOOL;
-pub const ATOM = windows.ATOM;
-pub const WCHAR = windows.WCHAR;
-pub const LPWSTR = windows.LPWSTR;
-pub const LPCWSTR = windows.LPCWSTR;
-pub const GUID = windows.GUID;
-pub const HRESULT = windows.HRESULT;
-pub const LONG_PTR = windows.LONG_PTR;
-pub const ULONG_PTR = windows.ULONG_PTR;
+pub const BOOL = c_int;
+pub const UINT = c_uint;
+pub const LONG = i32;
+pub const DWORD = u32;
+pub const WORD = u16;
+pub const WCHAR = u16;
+pub const ATOM = u16;
+pub const ULONG_PTR = usize;
+pub const LONG_PTR = isize;
+pub const WPARAM = usize;
+pub const LPARAM = LONG_PTR;
+pub const LRESULT = LONG_PTR;
+pub const HRESULT = c_long;
+pub const LPWSTR = [*:0]WCHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
+
+pub const HWND = *opaque {};
+pub const HINSTANCE = *opaque {};
+pub const HMODULE = *opaque {};
+pub const HANDLE = *opaque {};
+pub const HBRUSH = *opaque {};
+pub const HCURSOR = *opaque {};
+pub const HICON = *opaque {};
+pub const HMENU = *opaque {};
+pub const HDC = *opaque {};
+
+pub const GUID = extern struct {
+    Data1: u32,
+    Data2: u16,
+    Data3: u16,
+    Data4: [8]u8,
+};
+
+pub const RECT = extern struct {
+    left: LONG = 0,
+    top: LONG = 0,
+    right: LONG = 0,
+    bottom: LONG = 0,
+};
+
+pub const POINT = extern struct {
+    x: LONG = 0,
+    y: LONG = 0,
+};
 
 pub const TRUE: BOOL = 1;
 pub const FALSE: BOOL = 0;
