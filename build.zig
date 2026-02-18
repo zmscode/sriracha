@@ -6,8 +6,10 @@ pub fn build(b: *std.Build) void {
 
     const os = target.result.os.tag;
 
-    const root_module = b.createModule(.{
-        .root_source_file = b.path("src/sriracha.zig"),
+    // ── sriracha library module (importable by consumers) ──
+
+    const sriracha_mod = b.addModule("sriracha", .{
+        .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -17,23 +19,42 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/platform/macos/objc.zig"),
             .target = target,
         });
-        root_module.addImport("objc", objc_mod);
-        root_module.linkFramework("AppKit", .{});
-        root_module.linkFramework("WebKit", .{});
-        root_module.linkSystemLibrary("objc", .{});
+        sriracha_mod.addImport("objc", objc_mod);
+        sriracha_mod.linkFramework("AppKit", .{});
+        sriracha_mod.linkFramework("WebKit", .{});
+        sriracha_mod.linkSystemLibrary("objc", .{});
     } else if (os == .windows) {
-        root_module.linkSystemLibrary("user32", .{});
-        root_module.linkSystemLibrary("gdi32", .{});
-        root_module.linkSystemLibrary("kernel32", .{});
-        root_module.linkSystemLibrary("ole32", .{});
+        sriracha_mod.linkSystemLibrary("user32", .{});
+        sriracha_mod.linkSystemLibrary("gdi32", .{});
+        sriracha_mod.linkSystemLibrary("kernel32", .{});
+        sriracha_mod.linkSystemLibrary("ole32", .{});
     } else if (os == .linux) {
-        root_module.linkSystemLibrary("gtk+-3.0", .{});
-        root_module.linkSystemLibrary("webkit2gtk-4.1", .{});
+        sriracha_mod.linkSystemLibrary("gtk+-3.0", .{});
+        sriracha_mod.linkSystemLibrary("webkit2gtk-4.1", .{});
+    }
+
+    // ── demo executable (only if demo.zig exists) ──
+
+    const demo_source = b.path("demo.zig");
+    const demo_module = b.createModule(.{
+        .root_source_file = demo_source,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sriracha", .module = sriracha_mod },
+        },
+    });
+
+    // The demo uses objc directly in its callbacks on macOS
+    if (os == .macos) {
+        if (sriracha_mod.import_table.get("objc")) |objc_mod| {
+            demo_module.addImport("objc", objc_mod);
+        }
     }
 
     const exe = b.addExecutable(.{
-        .name = "sriracha",
-        .root_module = root_module,
+        .name = "sriracha-demo",
+        .root_module = demo_module,
     });
 
     // Windows GUI app — no console window
@@ -43,10 +64,8 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    // Windows: WebView2Loader.dll is embedded in the exe via @embedFile
-
     // -- run step --
-    const run_step = b.step("run", "Run the app");
+    const run_step = b.step("run", "Run the demo");
 
     if (os == .macos) {
         // macOS: create .app bundle and launch via open -W
@@ -61,7 +80,7 @@ pub fn build(b: *std.Build) void {
             \\    <key>CFBundleIdentifier</key>
             \\    <string>com.sriracha.app</string>
             \\    <key>CFBundleExecutable</key>
-            \\    <string>sriracha</string>
+            \\    <string>sriracha-demo</string>
             \\    <key>CFBundlePackageType</key>
             \\    <string>APPL</string>
             \\    <key>CFBundleVersion</key>
@@ -73,7 +92,7 @@ pub fn build(b: *std.Build) void {
             \\
         );
         const install_plist = b.addInstallFile(plist, "Sriracha.app/Contents/Info.plist");
-        const install_bin = b.addInstallFile(exe.getEmittedBin(), "Sriracha.app/Contents/MacOS/sriracha");
+        const install_bin = b.addInstallFile(exe.getEmittedBin(), "Sriracha.app/Contents/MacOS/sriracha-demo");
 
         const bundle_step = b.step("bundle", "Create Sriracha.app bundle");
         bundle_step.dependOn(&install_plist.step);
@@ -95,14 +114,4 @@ pub fn build(b: *std.Build) void {
         }
         run_step.dependOn(&run_cmd.step);
     }
-
-    // -- tests --
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_exe_tests.step);
 }

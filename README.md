@@ -22,73 +22,158 @@ Sriracha provides a unified API for creating windows and embedding web content a
 ## Requirements
 
 - [Zig](https://ziglang.org/) (master/nightly)
-- **macOS:** No extra dependencies (AppKit/WebKit are system frameworks)
+- **macOS:** No extra dependencies
 - **Windows:** Edge WebView2 runtime (pre-installed on Windows 10/11)
 - **Linux:** `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`
 
-## Build & Run
+## Installation
+
+Fetch the package:
 
 ```sh
-# Build
-zig build
-
-# Run the default demo (webview_load_html)
-zig build run
-
-# Run a specific demo
-zig build run -- webview_load_url
-
-# Cross-compile for Windows
-zig build -Dtarget=x86_64-windows
-
-# Release build
-zig build -Drelease
+zig fetch --save git+https://github.com/zmscode/sriracha
 ```
 
-## Demos
+Then in your `build.zig`:
 
-Pass any demo name as a command-line argument:
+```zig
+const std = @import("std");
 
-```sh
-zig build run -- <demo_name>
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const sriracha_dep = b.dependency("sriracha", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "my-app",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "sriracha", .module = sriracha_dep.module("sriracha") },
+            },
+        }),
+    });
+
+    b.installArtifact(exe);
+}
 ```
 
-**Window lifecycle:** `window_create`, `window_destroy`, `window_close`
+## Usage
 
-**Window properties:** `window_set_title`, `window_set_frame`, `window_min_max_size`, `window_get_frame`
+```zig
+const sriracha = @import("sriracha");
 
-**Window visibility:** `window_show_hide`, `window_miniaturize`, `window_center`
+var window: sriracha.Window = .{};
+var webview: sriracha.WebView = .{};
 
-**Window style:** `window_borderless`, `window_set_style_mask`, `window_transparent_titlebar`, `window_title_visibility`
+pub fn main(init: @import("std").process.Init) !void {
+    _ = init;
 
-**Window misc:** `window_alpha`, `window_toggle_fullscreen`, `window_traffic_light_pos` (macOS only), `window_order_front_back`, `window_callbacks`
+    sriracha.app.init(.{ .on_ready = onReady });
 
-**WebView:** `webview_create_destroy`, `webview_load_url`, `webview_load_html`, `webview_reload`, `webview_back_forward`, `webview_eval_js`, `webview_js_to_zig`, `webview_attach_detach`
+    window.create(.{
+        .title = "My App",
+        .callbacks = .{ .on_close = onClose },
+    });
+    window.center();
+    window.show();
 
-## Project Structure
+    webview.create(.{});
+    webview.attachToWindow(&window);
+    webview.loadHTML(
+        \\<html>
+        \\<body style="font-family: system-ui; padding: 40px;">
+        \\  <h1>Hello from Sriracha</h1>
+        \\</body>
+        \\</html>
+    , null);
 
+    sriracha.app.run();
+}
+
+fn onReady() void {}
+
+fn onClose(_: *sriracha.Window) void {
+    sriracha.app.terminate();
+}
 ```
-src/
-  sriracha.zig              # Entry point, demo runner, public API
-  platform/
-    macos/                  # AppKit + WebKit backend
-      app.zig               # NSApplication lifecycle
-      window.zig            # NSWindow management
-      webview.zig           # WKWebView integration
-      objc.zig              # Objective-C runtime bindings
-    windows/                # Win32 + WebView2 backend
-      app.zig               # Message loop lifecycle
-      window.zig            # HWND management
-      webview.zig           # WebView2 COM integration
-      win32.zig             # Win32 API declarations
-      WebView2Loader.dll    # Embedded into exe at compile time
-    linux/                  # GTK 3 + WebKitGTK backend
-      app.zig               # gtk_main lifecycle
-      window.zig            # GtkWindow management
-      webview.zig           # WebKitGTK integration
-      gtk.zig               # GTK/GLib/WebKit declarations
-build.zig
-build.zig.zon
+
+## API
+
+### Window
+
+```zig
+// Lifecycle
+window.create(opts)         // Create with title, size, position, style, callbacks
+window.destroy()            // Destroy the window
+window.close()              // Post a close event (triggers on_close callback)
+window.show() / .hide()
+
+// Properties
+window.setTitle(title)
+window.setFrame(x, y, w, h, animated)
+window.getFrame() -> Rect
+window.setMinSize(w, h) / .setMaxSize(w, h)
+
+// Style
+window.setStyleMask(mask)   // StyleMask.default, .borderless, .resizable, etc.
+window.setAlphaValue(0.8)   // Window transparency
+window.toggleFullScreen()
+
+// Positioning
+window.center()
+window.miniaturize() / .deminiaturize()
+window.orderFront() / .orderBack()
+```
+
+### WebView
+
+```zig
+// Lifecycle
+webview.create(opts)              // opts.on_script_message for JS-to-Zig messaging
+webview.destroy()
+webview.attachToWindow(&window)
+webview.detachFromWindow()
+
+// Navigation
+webview.loadURL("https://example.com")
+webview.loadHTML("<h1>Hello</h1>", null)
+webview.reload()
+webview.goBack() / .goForward()
+
+// JavaScript
+webview.evaluateJavaScript("document.title = 'Hello'")
+```
+
+### JS-to-Zig Messaging
+
+Send messages from JavaScript to Zig:
+
+```javascript
+// In your HTML/JS
+window.webkit.messageHandlers.sriracha.postMessage("hello from js!");
+```
+
+```zig
+// In Zig
+webview.create(.{ .on_script_message = onMessage });
+
+fn onMessage(_: *sriracha.WebView, message: []const u8) void {
+    std.debug.print("JS says: {s}\n", .{message});
+}
+```
+
+### Timers
+
+```zig
+// Schedule a one-shot callback (seconds)
+sriracha.scheduleCallback(2, &myCallback);
 ```
 
 ## License
