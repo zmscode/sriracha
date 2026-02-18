@@ -164,13 +164,28 @@ pub fn main(init: std.process.Init) !void {
             window.create(.{ .title = "borderless", .style = StyleMask.borderless, .callbacks = .{ .on_close = onClose } });
             window.center();
             window.show();
+            webview.create(.{});
+            webview.attachToWindow(&window);
+            webview.loadHTML(
+                \\<html>
+                \\<body style="margin:0;padding:40px;background:#1a1a2e;color:#eee;font-family:-apple-system;">
+                \\  <h1>Borderless Window</h1>
+                \\  <p>This window has no title bar or frame.</p>
+                \\</body></html>
+            , null);
         },
         .window_set_style_mask => {
             window.create(.{ .title = "window_set_style_mask", .callbacks = .{ .on_close = onClose } });
             window.center();
             window.show();
         },
+        // -- macOS only --
         .window_transparent_titlebar => {
+            if (!is_macos) {
+                std.debug.print("window_transparent_titlebar is macOS only, skipping\n", .{});
+                app.terminate();
+                return;
+            }
             window.create(.{ .title = "transparent titlebar", .style = StyleMask.default | StyleMask.full_size_content_view, .callbacks = .{ .on_close = onClose } });
             window.setTitlebarAppearsTransparent(true);
             window.setTitleVisibility(true);
@@ -188,6 +203,11 @@ pub fn main(init: std.process.Init) !void {
             , null);
         },
         .window_title_visibility => {
+            if (!is_macos) {
+                std.debug.print("window_title_visibility is macOS only, skipping\n", .{});
+                app.terminate();
+                return;
+            }
             window.create(.{ .title = "title hidden!", .callbacks = .{ .on_close = onClose } });
             window.setTitleVisibility(true);
             window.center();
