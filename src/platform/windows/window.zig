@@ -155,16 +155,16 @@ pub const Window = struct {
                     _ = win32.MoveWindow(cv, 0, 0, rc.right - rc.left, rc.bottom - rc.top, win32.TRUE);
                 }
                 if (self.callbacks.on_resize) |cb| {
-                    const w: f64 = @floatFromInt(loword(lparam));
-                    const ht: f64 = @floatFromInt(hiword(lparam));
+                    const w: f64 = @floatFromInt(lowordU(lparam));
+                    const ht: f64 = @floatFromInt(hiwordU(lparam));
                     cb(self, .{ .width = w, .height = ht });
                 }
                 return 0;
             },
             win32.WM_MOVE => {
                 if (self.callbacks.on_move) |cb| {
-                    const x: f64 = @floatFromInt(loword(lparam));
-                    const y: f64 = @floatFromInt(hiword(lparam));
+                    const x: f64 = @floatFromInt(lowordS(lparam));
+                    const y: f64 = @floatFromInt(hiwordS(lparam));
                     cb(self, .{ .x = x, .y = y });
                 }
                 return 0;
@@ -447,11 +447,19 @@ pub const Window = struct {
     // Helpers
     // --------------------------------------------------------
 
-    fn loword(l: win32.LPARAM) i16 {
+    fn lowordU(l: win32.LPARAM) u16 {
+        return @truncate(@as(usize, @bitCast(l)));
+    }
+
+    fn hiwordU(l: win32.LPARAM) u16 {
+        return @truncate(@as(usize, @bitCast(l)) >> 16);
+    }
+
+    fn lowordS(l: win32.LPARAM) i16 {
         return @truncate(@as(isize, l));
     }
 
-    fn hiword(l: win32.LPARAM) i16 {
+    fn hiwordS(l: win32.LPARAM) i16 {
         return @truncate(@as(isize, l) >> 16);
     }
 };
