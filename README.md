@@ -64,6 +64,13 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
+For local development in this repo, build the demo explicitly:
+
+```sh
+zig build -Dbuild_demo=true
+zig build run -Dbuild_demo=true
+```
+
 ## Usage
 
 ```zig
