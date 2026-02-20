@@ -26,6 +26,10 @@ Sriracha provides a unified API for creating windows and embedding web content a
 - **Windows:** Edge WebView2 runtime (pre-installed on Windows 10/11)
 - **Linux:** `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`
 
+Windows loader note:
+- `src/platform/windows/WebView2Loader.dll` is the canonical embedded loader binary.
+- Replace that file directly when updating the bundled WebView2 loader version.
+
 ## Installation
 
 Fetch the package:
