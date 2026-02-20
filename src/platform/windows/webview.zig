@@ -397,7 +397,9 @@ const WebMessageReceivedHandler = extern struct {
                 var wide_msg: ?win32.LPWSTR = null;
                 _ = vtbl_ptr.*.TryGetWebMessageAsString(args, &wide_msg);
                 if (wide_msg) |msg| {
+                    defer win32.CoTaskMemFree(@ptrCast(msg));
                     const utf8 = win32.wideToUtf8(msg) catch return win32.S_OK;
+                    defer allocator.free(utf8);
                     cb(self.webview, utf8);
                 }
             }

@@ -323,6 +323,7 @@ pub extern "kernel32" fn GetFileSize(hFile: HANDLE, lpFileSizeHigh: ?*DWORD) cal
 
 pub extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: DWORD) callconv(.c) HRESULT;
 pub extern "ole32" fn CoUninitialize() callconv(.c) void;
+pub extern "ole32" fn CoTaskMemFree(pv: ?*anyopaque) callconv(.c) void;
 
 // ============================================================
 // UTF-8 <-> UTF-16 helpers
