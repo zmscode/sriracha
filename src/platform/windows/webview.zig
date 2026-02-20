@@ -616,11 +616,47 @@ pub const WebView = struct {
         // because WebView2 requires a message loop to be active.
     }
 
-    /// Attach the webview to a window. On Windows, this is required before
-    /// the webview can render — WebView2's controller needs an HWND.
-    /// If the environment is already created, this triggers controller creation.
-    /// If not, the controller will be created when the environment callback fires.
-    var pending_init: ?*WebView = null;
+    const max_pending_inits = 32;
+    var pending_inits: [max_pending_inits]?*WebView = .{null} ** max_pending_inits;
+    var init_timer_scheduled: bool = false;
+
+    fn enqueuePendingInit(self: *WebView) void {
+        for (pending_inits) |entry| {
+            if (entry == self) return;
+        }
+
+        for (&pending_inits) |*entry| {
+            if (entry.* == null) {
+                entry.* = self;
+                if (!init_timer_scheduled) {
+                    init_timer_scheduled = true;
+                    @import("window.zig").scheduleTimer(1, &processPendingInits);
+                }
+                return;
+            }
+        }
+
+        // Fallback if queue is full.
+        _ = createWebView2Environment(@ptrCast(&self.env_handler));
+    }
+
+    fn dequeuePendingInit(self: *WebView) void {
+        for (&pending_inits) |*entry| {
+            if (entry.* == self) entry.* = null;
+        }
+    }
+
+    fn processPendingInits(_: ?*anyopaque) callconv(.c) void {
+        init_timer_scheduled = false;
+        for (&pending_inits) |*entry| {
+            if (entry.*) |wv| {
+                entry.* = null;
+                if (wv.environment == null) {
+                    _ = createWebView2Environment(@ptrCast(&wv.env_handler));
+                }
+            }
+        }
+    }
 
     pub fn attachToWindow(self: *WebView, win: *Window) void {
         self.window = win;
@@ -670,15 +706,7 @@ pub const WebView = struct {
         } else if (self.environment == null) {
             // Defer environment creation using a WM_TIMER on a message-only window.
             // Avoids TIMERPROC callback pointers which trigger AV heuristics.
-            pending_init = self;
-            @import("window.zig").scheduleTimer(1, &struct {
-                fn f(_: ?*anyopaque) callconv(.c) void {
-                    if (pending_init) |wv| {
-                        pending_init = null;
-                        _ = createWebView2Environment(@ptrCast(&wv.env_handler));
-                    }
-                }
-            }.f);
+            self.enqueuePendingInit();
         } else if (self.environment != null and !self.controller_requested) {
             if (self.widget) |w| {
                 self.createController(w);
@@ -747,6 +775,7 @@ pub const WebView = struct {
     }
 
     pub fn destroy(self: *WebView) void {
+        self.dequeuePendingInit();
         self.detachFromWindow();
         self.clearPending();
 
