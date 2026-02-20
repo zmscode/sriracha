@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
         const run_step = b.step("run", "Run the demo");
 
         if (os == .macos) {
-            // macOS: create .app bundle and launch via open -W
+            // macOS: create .app bundle, then run bundled binary in-terminal
             const wf = b.addWriteFiles();
             const plist = wf.add("Info.plist",
                 \\<?xml version="1.0" encoding="UTF-8"?>
@@ -98,14 +98,25 @@ pub fn build(b: *std.Build) void {
             bundle_step.dependOn(&install_plist.step);
             bundle_step.dependOn(&install_bin.step);
 
-            const bundle_path = b.getInstallPath(.prefix, "Sriracha.app");
-            const run_cmd = b.addSystemCommand(&.{ "open", "-W", bundle_path, "--args" });
+            const bundled_bin = b.getInstallPath(.prefix, "Sriracha.app/Contents/MacOS/sriracha-demo");
+            const run_cmd = b.addSystemCommand(&.{bundled_bin});
             if (b.args) |args| {
                 run_cmd.addArgs(args);
             }
             run_cmd.step.dependOn(&install_plist.step);
             run_cmd.step.dependOn(&install_bin.step);
             run_step.dependOn(&run_cmd.step);
+
+            // Optional: run via LaunchServices (no terminal stdout/stderr capture).
+            const run_bundle_step = b.step("run-bundle", "Run demo via open -W Sriracha.app");
+            const bundle_path = b.getInstallPath(.prefix, "Sriracha.app");
+            const run_bundle_cmd = b.addSystemCommand(&.{ "open", "-W", bundle_path, "--args" });
+            if (b.args) |args| {
+                run_bundle_cmd.addArgs(args);
+            }
+            run_bundle_cmd.step.dependOn(&install_plist.step);
+            run_bundle_cmd.step.dependOn(&install_bin.step);
+            run_bundle_step.dependOn(&run_bundle_cmd.step);
         } else {
             // Windows / Linux: run the executable directly
             const run_cmd = b.addRunArtifact(exe);

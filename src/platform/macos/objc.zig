@@ -79,6 +79,11 @@ pub inline fn msgSend_id_void(obj: id, selector: SEL, a0: id) void {
     f(obj, selector, a0);
 }
 
+pub inline fn msgSend_sel_void(obj: id, selector: SEL, a0: SEL) void {
+    const f: *const fn (id, SEL, SEL) callconv(.c) void = @ptrCast(@alignCast(&c.objc_msgSend));
+    f(obj, selector, a0);
+}
+
 pub inline fn msgSend_id_id_void(obj: id, selector: SEL, a0: id, a1: id) void {
     const f: *const fn (id, SEL, id, id) callconv(.c) void = @ptrCast(@alignCast(&c.objc_msgSend));
     f(obj, selector, a0, a1);
@@ -92,6 +97,11 @@ pub inline fn msgSend_rect_uint_uint_bool(obj: id, selector: SEL, rect: NSRect, 
 pub inline fn msgSend_rect_id(obj: id, selector: SEL, rect: NSRect, a0: id) id {
     const f: *const fn (id, SEL, NSRect, id) callconv(.c) id = @ptrCast(@alignCast(&c.objc_msgSend));
     return f(obj, selector, rect, a0);
+}
+
+pub inline fn msgSend_rect(obj: id, selector: SEL, rect: NSRect) id {
+    const f: *const fn (id, SEL, NSRect) callconv(.c) id = @ptrCast(@alignCast(&c.objc_msgSend));
+    return f(obj, selector, rect);
 }
 
 pub inline fn msgSend_void(obj: id, selector: SEL) void {

@@ -1,3 +1,4 @@
+const std = @import("std");
 const objc = @import("objc");
 
 // Platform-neutral geometry type aliases
@@ -36,6 +37,8 @@ pub const Window = struct {
     native: objc.id = null,
     delegate: objc.id = null,
     callbacks: WindowCallbacks = .{},
+    traffic_light_position: ?Point = null,
+    traffic_light_hit_proxies: [3]objc.id = .{ null, null, null },
 
     var delegate_class_registered: bool = false;
 
@@ -52,6 +55,7 @@ pub const Window = struct {
         _ = objc.addMethod(cls, objc.sel("windowDidMove:"), @ptrCast(&windowDidMove), "v@:@");
         _ = objc.addMethod(cls, objc.sel("windowDidBecomeKey:"), @ptrCast(&windowDidBecomeKey), "v@:@");
         _ = objc.addMethod(cls, objc.sel("windowDidResignKey:"), @ptrCast(&windowDidResignKey), "v@:@");
+        _ = objc.addMethod(cls, objc.sel("windowDidUpdate:"), @ptrCast(&windowDidUpdate), "v@:@");
 
         objc.registerClassPair(cls);
         delegate_class_registered = true;
@@ -70,6 +74,7 @@ pub const Window = struct {
     fn windowDidResize(self_obj: objc.id, _sel: objc.SEL, notification: objc.id) callconv(.c) void {
         _ = .{ _sel, notification };
         const w = getWindowFromDelegate(self_obj);
+        w.reapplyTrafficLights();
         const frame = objc.msgSend_stret_rect(w.native, objc.sel("frame"));
         if (w.callbacks.on_resize) |cb| cb(w, frame.size);
     }
@@ -77,6 +82,7 @@ pub const Window = struct {
     fn windowDidMove(self_obj: objc.id, _sel: objc.SEL, notification: objc.id) callconv(.c) void {
         _ = .{ _sel, notification };
         const w = getWindowFromDelegate(self_obj);
+        w.reapplyTrafficLights();
         const frame = objc.msgSend_stret_rect(w.native, objc.sel("frame"));
         if (w.callbacks.on_move) |cb| cb(w, frame.origin);
     }
@@ -84,6 +90,7 @@ pub const Window = struct {
     fn windowDidBecomeKey(self_obj: objc.id, _sel: objc.SEL, notification: objc.id) callconv(.c) void {
         _ = .{ _sel, notification };
         const w = getWindowFromDelegate(self_obj);
+        w.reapplyTrafficLights();
         if (w.callbacks.on_focus) |cb| cb(w);
     }
 
@@ -91,6 +98,12 @@ pub const Window = struct {
         _ = .{ _sel, notification };
         const w = getWindowFromDelegate(self_obj);
         if (w.callbacks.on_blur) |cb| cb(w);
+    }
+
+    fn windowDidUpdate(self_obj: objc.id, _sel: objc.SEL, notification: objc.id) callconv(.c) void {
+        _ = .{ _sel, notification };
+        const w = getWindowFromDelegate(self_obj);
+        w.reapplyTrafficLights();
     }
 
     pub const CreateOptions = struct {
@@ -154,6 +167,7 @@ pub const Window = struct {
     }
 
     pub fn show(self: *Window) void {
+        self.reapplyTrafficLights();
         objc.msgSend_id_void(self.native, objc.sel("makeKeyAndOrderFront:"), null);
     }
 
@@ -178,6 +192,13 @@ pub const Window = struct {
     }
 
     pub fn destroy(self: *Window) void {
+        for (&self.traffic_light_hit_proxies) |*proxy| {
+            if (proxy.*) |btn| {
+                objc.msgSend_void(btn, objc.sel("removeFromSuperview"));
+                objc.msgSend_void(btn, objc.sel("release"));
+                proxy.* = null;
+            }
+        }
         objc.msgSend_id_void(self.native, objc.sel("setDelegate:"), null);
         objc.msgSend_void(self.native, objc.sel("close"));
         objc.msgSend_void(self.delegate, objc.sel("release"));
@@ -219,21 +240,96 @@ pub const Window = struct {
     }
 
     pub fn setTrafficLightPosition(self: *Window, x: f64, y: f64) void {
-        const buttons = [_]objc.NSUInteger{
-            WindowButton.close,
-            WindowButton.miniaturize,
-            WindowButton.zoom,
-        };
-        const spacing: f64 = 20;
-        for (buttons, 0..) |btn_type, i| {
-            const btn = self.getStandardButton(btn_type);
-            if (btn != null) {
-                objc.msgSend_point_void(btn, objc.sel("setFrameOrigin:"), .{
-                    .x = x + @as(f64, @floatFromInt(i)) * spacing,
-                    .y = y,
-                });
-            }
+        self.traffic_light_position = .{ .x = x, .y = y };
+        self.reapplyTrafficLights();
+    }
+
+    fn reapplyTrafficLights(self: *Window) void {
+        const pos = self.traffic_light_position orelse return;
+        const x = pos.x;
+        const y = pos.y;
+        const close_btn = self.getStandardButton(WindowButton.close);
+        if (close_btn == null) return;
+
+        const button_parent = objc.msgSend(close_btn, objc.sel("superview"));
+        if (button_parent == null) return;
+        objc.msgSend_void(button_parent, objc.sel("layoutSubtreeIfNeeded"));
+
+        const parent_bounds = objc.msgSend_stret_rect(button_parent, objc.sel("bounds"));
+
+        const mini_btn = self.getStandardButton(WindowButton.miniaturize);
+        const zoom_btn = self.getStandardButton(WindowButton.zoom);
+        const buttons = [_]objc.id{ close_btn, mini_btn, zoom_btn };
+        const spacing: f64 = 6.0;
+
+        // Clamp requested position so the entire traffic-light group stays inside
+        // the titlebar parent bounds.
+        var total_width: f64 = 0;
+        var max_height: f64 = 0;
+        var count: usize = 0;
+        for (buttons) |btn| {
+            if (btn == null) continue;
+            const f = objc.msgSend_stret_rect(btn, objc.sel("frame"));
+            total_width += f.size.width;
+            max_height = @max(max_height, f.size.height);
+            count += 1;
         }
+        if (count == 0) return;
+        if (count > 1) total_width += spacing * @as(f64, @floatFromInt(count - 1));
+
+        const max_start_x = @max(0.0, parent_bounds.size.width - total_width);
+        const clamped_x = std.math.clamp(x, 0.0, max_start_x);
+
+        const max_top = @max(0.0, parent_bounds.size.height - max_height);
+        const clamped_top = std.math.clamp(y, 0.0, max_top);
+        const clamped_bottom_y = parent_bounds.size.height - max_height - clamped_top;
+
+        var next_x = clamped_x;
+        const actions = [_]objc.SEL{
+            objc.sel("performClose:"),
+            objc.sel("performMiniaturize:"),
+            objc.sel("performZoom:"),
+        };
+        for (buttons, 0..) |btn, i| {
+            if (btn == null) continue;
+            objc.msgSend_bool(btn, objc.sel("setHidden:"), false);
+            var btn_frame = objc.msgSend_stret_rect(btn, objc.sel("frame"));
+            btn_frame.origin = .{ .x = next_x, .y = clamped_bottom_y };
+            objc.msgSend_point_void(btn, objc.sel("setFrameOrigin:"), btn_frame.origin);
+            // Refresh tracking/hit regions after frame change.
+            objc.msgSend_void(btn, objc.sel("updateTrackingAreas"));
+            objc.msgSend_void(btn, objc.sel("resetCursorRects"));
+            self.ensureTrafficLightHitProxy(i, button_parent, btn_frame, actions[i]);
+            next_x += btn_frame.size.width + spacing;
+        }
+
+        objc.msgSend_void(button_parent, objc.sel("updateTrackingAreas"));
+        objc.msgSend_void(button_parent, objc.sel("resetCursorRects"));
+        objc.msgSend_void(button_parent, objc.sel("layoutSubtreeIfNeeded"));
+        objc.msgSend_void(self.native, objc.sel("displayIfNeeded"));
+    }
+
+    fn ensureTrafficLightHitProxy(self: *Window, index: usize, parent: objc.id, frame: Rect, action: objc.SEL) void {
+        var proxy = self.traffic_light_hit_proxies[index];
+        if (proxy == null) {
+            const alloc_btn = objc.msgSend(objc.getClass("NSButton"), objc.sel("alloc"));
+            proxy = objc.msgSend_rect(alloc_btn, objc.sel("initWithFrame:"), frame);
+            if (proxy == null) return;
+
+            objc.msgSend_id_void(proxy, objc.sel("setTitle:"), objc.nsString(""));
+            objc.msgSend_bool(proxy, objc.sel("setBordered:"), false);
+            objc.msgSend_bool(proxy, objc.sel("setTransparent:"), true);
+            objc.msgSend_bool(proxy, objc.sel("setRefusesFirstResponder:"), true);
+            objc.msgSend_f64_void(proxy, objc.sel("setAlphaValue:"), 0.001);
+            objc.msgSend_id_void(proxy, objc.sel("setTarget:"), self.native);
+            objc.msgSend_sel_void(proxy, objc.sel("setAction:"), action);
+            objc.msgSend_id_void(parent, objc.sel("addSubview:"), proxy);
+            self.traffic_light_hit_proxies[index] = proxy;
+        }
+
+        objc.msgSend_point_void(proxy, objc.sel("setFrameOrigin:"), frame.origin);
+        objc.msgSend_size_void(proxy, objc.sel("setFrameSize:"), frame.size);
+        objc.msgSend_bool(proxy, objc.sel("setHidden:"), false);
     }
 
     pub fn orderFront(self: *Window) void {
