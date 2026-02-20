@@ -15,6 +15,7 @@ pub const WebView = struct {
     };
 
     pub fn create(self: *WebView, opts: CreateOptions) void {
+        const alloc = std.heap.page_allocator;
         self.handler_name = opts.handler_name;
         self.on_script_message = opts.on_script_message;
 
@@ -22,17 +23,17 @@ pub const WebView = struct {
         const manager = gtk.webkit_user_content_manager_new() orelse return;
         self.content_manager = manager;
 
-        // Build signal name: "script-message-received::<handler_name>"
-        var signal_buf: [128:0]u8 = @splat(0);
         const prefix = "script-message-received::";
-        @memcpy(signal_buf[0..prefix.len], prefix);
-        const name_len = @min(opts.handler_name.len, signal_buf.len - prefix.len - 1);
-        @memcpy(signal_buf[prefix.len..][0..name_len], opts.handler_name[0..name_len]);
+        const signal_len = prefix.len + opts.handler_name.len;
+        const signal_z = alloc.allocSentinel(u8, signal_len, 0) catch return;
+        defer alloc.free(signal_z[0 .. signal_len + 1]);
+        @memcpy(signal_z[0..prefix.len], prefix);
+        @memcpy(signal_z[prefix.len..][0..opts.handler_name.len], opts.handler_name);
 
         // Connect signal before registering handler
         _ = gtk.g_signal_connect_data(
             @ptrCast(manager),
-            &signal_buf,
+            signal_z.ptr,
             @ptrCast(&onScriptMessage),
             @ptrCast(self),
             null,
@@ -40,10 +41,10 @@ pub const WebView = struct {
         );
 
         // Register the handler name
-        var name_buf: [64:0]u8 = @splat(0);
-        const hn_len = @min(opts.handler_name.len, name_buf.len - 1);
-        @memcpy(name_buf[0..hn_len], opts.handler_name[0..hn_len]);
-        _ = gtk.webkit_user_content_manager_register_script_message_handler(manager, &name_buf);
+        const name_z = alloc.allocSentinel(u8, opts.handler_name.len, 0) catch return;
+        defer alloc.free(name_z[0 .. opts.handler_name.len + 1]);
+        @memcpy(name_z[0..opts.handler_name.len], opts.handler_name);
+        _ = gtk.webkit_user_content_manager_register_script_message_handler(manager, name_z.ptr);
 
         // Create WebView with the content manager
         self.native = gtk.webkit_web_view_new_with_user_content_manager(manager);
@@ -60,10 +61,11 @@ pub const WebView = struct {
 
     pub fn loadURL(self: *WebView, url: []const u8) void {
         const wv = self.native orelse return;
-        var buf: [4096:0]u8 = @splat(0);
-        const len = @min(url.len, buf.len - 1);
-        @memcpy(buf[0..len], url[0..len]);
-        gtk.webkit_web_view_load_uri(wv, &buf);
+        const alloc = std.heap.page_allocator;
+        const url_z = alloc.allocSentinel(u8, url.len, 0) catch return;
+        defer alloc.free(url_z[0 .. url.len + 1]);
+        @memcpy(url_z[0..url.len], url);
+        gtk.webkit_web_view_load_uri(wv, url_z.ptr);
     }
 
     pub fn loadHTML(self: *WebView, html: []const u8, base_url: ?[]const u8) void {
@@ -131,13 +133,15 @@ pub const WebView = struct {
     }
 
     pub fn destroy(self: *WebView) void {
+        const alloc = std.heap.page_allocator;
         self.detachFromWindow();
 
         if (self.content_manager) |manager| {
-            var name_buf: [64:0]u8 = @splat(0);
-            const len = @min(self.handler_name.len, name_buf.len - 1);
-            @memcpy(name_buf[0..len], self.handler_name[0..len]);
-            gtk.webkit_user_content_manager_unregister_script_message_handler(manager, &name_buf);
+            if (alloc.allocSentinel(u8, self.handler_name.len, 0)) |name_z| {
+                defer alloc.free(name_z[0 .. self.handler_name.len + 1]);
+                @memcpy(name_z[0..self.handler_name.len], self.handler_name);
+                gtk.webkit_user_content_manager_unregister_script_message_handler(manager, name_z.ptr);
+            }
         }
 
         if (self.native) |wv| {

@@ -153,10 +153,11 @@ pub const Window = struct {
         self.native = win;
 
         // Title
-        var title_buf: [256:0]u8 = @splat(0);
-        const len = @min(opts.title.len, title_buf.len - 1);
-        @memcpy(title_buf[0..len], opts.title[0..len]);
-        gtk.gtk_window_set_title(win, &title_buf);
+        const alloc = std.heap.page_allocator;
+        const title_z = alloc.allocSentinel(u8, opts.title.len, 0) catch return;
+        defer alloc.free(title_z[0 .. opts.title.len + 1]);
+        @memcpy(title_z[0..opts.title.len], opts.title);
+        gtk.gtk_window_set_title(win, title_z.ptr);
 
         // Size and position
         gtk.gtk_window_set_default_size(win, @intFromFloat(opts.width), @intFromFloat(opts.height));
@@ -195,10 +196,11 @@ pub const Window = struct {
 
     pub fn setTitle(self: *Window, title: []const u8) void {
         const win = self.native orelse return;
-        var buf: [256:0]u8 = @splat(0);
-        const len = @min(title.len, buf.len - 1);
-        @memcpy(buf[0..len], title[0..len]);
-        gtk.gtk_window_set_title(win, &buf);
+        const alloc = std.heap.page_allocator;
+        const title_z = alloc.allocSentinel(u8, title.len, 0) catch return;
+        defer alloc.free(title_z[0 .. title.len + 1]);
+        @memcpy(title_z[0..title.len], title);
+        gtk.gtk_window_set_title(win, title_z.ptr);
     }
 
     pub fn setFrame(self: *Window, x: f64, y: f64, w: f64, h: f64, _: bool) void {
