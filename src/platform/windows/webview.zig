@@ -576,8 +576,8 @@ pub const WebView = struct {
     controller_requested: bool = false,
 
     // Pending operations before webview is ready
-    pending_url: ?[]const u8 = null,
-    pending_html: ?[]const u8 = null,
+    pending_url: ?[]u8 = null,
+    pending_html: ?[]u8 = null,
 
     // COM handler instances (must be stable in memory since COM holds pointers)
     env_handler: EnvironmentCompletedHandler = undefined,
@@ -593,6 +593,7 @@ pub const WebView = struct {
     pub fn create(self: *WebView, opts: CreateOptions) void {
         self.handler_name = opts.handler_name;
         self.on_script_message = opts.on_script_message;
+        self.clearPending();
 
         // Initialize COM callback handlers
         self.env_handler = .{
@@ -692,8 +693,7 @@ pub const WebView = struct {
             const typed: *const ICoreWebView2 = @ptrCast(@alignCast(wv));
             _ = typed.lpVtbl.Navigate(wv, wide.ptr);
         } else {
-            self.pending_url = url;
-            self.pending_html = null;
+            self.setPendingUrl(url);
         }
     }
 
@@ -704,8 +704,7 @@ pub const WebView = struct {
             const typed: *const ICoreWebView2 = @ptrCast(@alignCast(wv));
             _ = typed.lpVtbl.NavigateToString(wv, wide.ptr);
         } else {
-            self.pending_html = html;
-            self.pending_url = null;
+            self.setPendingHtml(html);
         }
     }
 
@@ -749,6 +748,7 @@ pub const WebView = struct {
 
     pub fn destroy(self: *WebView) void {
         self.detachFromWindow();
+        self.clearPending();
 
         if (self.core_webview) |wv| {
             const typed: *const ICoreWebView2 = @ptrCast(@alignCast(wv));
@@ -817,10 +817,41 @@ pub const WebView = struct {
     fn flushPending(self: *WebView) void {
         if (self.pending_url) |url| {
             self.loadURL(url);
+            allocator.free(url);
             self.pending_url = null;
         }
         if (self.pending_html) |html| {
             self.loadHTML(html, null);
+            allocator.free(html);
+            self.pending_html = null;
+        }
+    }
+
+    fn setPendingUrl(self: *WebView, url: []const u8) void {
+        if (self.pending_html) |html| {
+            allocator.free(html);
+            self.pending_html = null;
+        }
+        if (self.pending_url) |old| allocator.free(old);
+        self.pending_url = allocator.dupe(u8, url) catch null;
+    }
+
+    fn setPendingHtml(self: *WebView, html: []const u8) void {
+        if (self.pending_url) |url| {
+            allocator.free(url);
+            self.pending_url = null;
+        }
+        if (self.pending_html) |old| allocator.free(old);
+        self.pending_html = allocator.dupe(u8, html) catch null;
+    }
+
+    fn clearPending(self: *WebView) void {
+        if (self.pending_url) |url| {
+            allocator.free(url);
+            self.pending_url = null;
+        }
+        if (self.pending_html) |html| {
+            allocator.free(html);
             self.pending_html = null;
         }
     }
