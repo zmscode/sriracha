@@ -85,7 +85,6 @@ pub const Window = struct {
     // Timer callback table for WM_TIMER-based deferred execution
     const max_timers = 16;
     var timer_callbacks: [max_timers]?*const fn (?*anyopaque) callconv(.c) void = .{null} ** max_timers;
-    var next_timer_id: usize = 1; // timer IDs start at 1
 
     var class_registered: bool = false;
     const CLASS_NAME = std.unicode.utf8ToUtf16LeStringLiteral("SrirachaWindow");
@@ -461,10 +460,15 @@ pub const Window = struct {
 /// This avoids heuristic AV false positives from SetTimer with callback pointers.
 pub fn scheduleTimer(millis: u32, func: *const fn (?*anyopaque) callconv(.c) void) void {
     // Find a free slot
-    const id = Window.next_timer_id;
-    if (id > Window.max_timers) return;
+    var id: usize = 0;
+    for (Window.timer_callbacks, 0..) |entry, i| {
+        if (entry == null) {
+            id = i + 1;
+            break;
+        }
+    }
+    if (id == 0) return;
     Window.timer_callbacks[id - 1] = func;
-    Window.next_timer_id += 1;
 
     // We need an HWND to receive WM_TIMER. Use a hidden message-only window.
     const hwnd = getTimerWindow();
