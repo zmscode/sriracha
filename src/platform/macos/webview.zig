@@ -7,7 +7,7 @@ pub const WebView = struct {
     content_controller: objc.id = null,
     message_handler: objc.id = null,
     handler_name: []const u8 = "sriracha",
-    on_script_message: ?*const fn (*WebView, objc.id) void = null,
+    on_script_message: ?*const fn (*WebView, []const u8) void = null,
     window: ?*Window = null,
 
     var handler_class_registered: bool = false;
@@ -34,13 +34,21 @@ pub const WebView = struct {
     fn handleScriptMessage(self_obj: objc.id, _sel: objc.SEL, controller: objc.id, message: objc.id) callconv(.c) void {
         _ = .{ _sel, controller };
         const wv: *WebView = @ptrCast(@alignCast(objc.getIvar(self_obj, "_zig_webview")));
-        if (wv.on_script_message) |cb| cb(wv, message);
+        const cb = wv.on_script_message orelse return;
+        const body = objc.msgSend(message, objc.sel("body"));
+        const desc = objc.msgSend(body, objc.sel("description"));
+        const utf8 = objc.msgSend(desc, objc.sel("UTF8String"));
+        if (utf8) |ptr| {
+            const str: [*:0]const u8 = @ptrCast(ptr);
+            var len: usize = 0;
+            while (str[len] != 0) : (len += 1) {}
+            cb(wv, str[0..len]);
+        }
     }
-
 
     pub const CreateOptions = struct {
         handler_name: []const u8 = "sriracha",
-        on_script_message: ?*const fn (*WebView, objc.id) void = null,
+        on_script_message: ?*const fn (*WebView, []const u8) void = null,
     };
 
     pub fn create(self: *WebView, opts: CreateOptions) void {
@@ -75,7 +83,6 @@ pub const WebView = struct {
         self.window = null;
     }
 
-
     pub fn loadURL(self: *WebView, url: []const u8) void {
         const request = objc.msgSend_id(
             objc.getClass("NSURLRequest"),
@@ -107,7 +114,6 @@ pub const WebView = struct {
         _ = objc.msgSend(self.native, objc.sel("goForward"));
     }
 
-
     pub fn evaluateJavaScript(self: *WebView, js: []const u8) void {
         objc.msgSend_id_id_void(
             self.native,
@@ -116,7 +122,6 @@ pub const WebView = struct {
             null,
         );
     }
-
 
     pub fn attachToWindow(self: *WebView, win: *Window) void {
         win.setContentView(self.native);
@@ -131,7 +136,6 @@ pub const WebView = struct {
             self.window = null;
         }
     }
-
 
     pub fn destroy(self: *WebView) void {
         self.detachFromWindow();
